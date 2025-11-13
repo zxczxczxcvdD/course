@@ -18,14 +18,6 @@ CRYPTO_CURRENCIES = {
     'the-open-network': {'name': 'TON', 'symbol': 'TON', 'emoji': '💎', 'alternative_source': 'tonapi'},
     'bitcoin': {'name': 'Bitcoin', 'symbol': 'BTC', 'emoji': '₿'},
     'ethereum': {'name': 'Ethereum', 'symbol': 'ETH', 'emoji': 'Ξ'},
-    'binancecoin': {'name': 'BNB', 'symbol': 'BNB', 'emoji': '🟡'},
-    'solana': {'name': 'Solana', 'symbol': 'SOL', 'emoji': '◎'},
-    'cardano': {'name': 'Cardano', 'symbol': 'ADA', 'emoji': '🔷'},
-    'dogecoin': {'name': 'Dogecoin', 'symbol': 'DOGE', 'emoji': '🐕'},
-    'polkadot': {'name': 'Polkadot', 'symbol': 'DOT', 'emoji': '⚫'},
-    'polygon': {'name': 'Polygon', 'symbol': 'MATIC', 'emoji': '🟣'},
-    'avalanche-2': {'name': 'Avalanche', 'symbol': 'AVAX', 'emoji': '🔺'},
-    'chainlink': {'name': 'Chainlink', 'symbol': 'LINK', 'emoji': '🔗'},
 }
 
 # Функция для получения курса TON через TonAPI
@@ -35,7 +27,7 @@ def get_ton_price_tonapi() -> dict:
         url = "https://tonapi.io/v2/rates"
         params = {
             'tokens': 'ton',
-            'currencies': 'usd,rub'
+            'currencies': 'usd,rub,uah'
         }
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
@@ -45,8 +37,9 @@ def get_ton_price_tonapi() -> dict:
             ton_data = data['rates']['TON']
             usd_price = ton_data.get('USD')
             rub_price = ton_data.get('RUB')
+            uah_price = ton_data.get('UAH')
 
-            if usd_price is not None or rub_price is not None:
+            if usd_price is not None or rub_price is not None or uah_price is not None:
                 # Пытаемся получить дополнительные данные через CoinGecko
                 try:
                     coingecko_data = get_crypto_price_coingecko('the-open-network')
@@ -56,8 +49,10 @@ def get_ton_price_tonapi() -> dict:
                 result = {
                     'usd': usd_price,
                     'rub': rub_price,
+                    'uah': uah_price,
                     'usd_24h_change': coingecko_data.get('usd_24h_change', 0) if coingecko_data else 0,
                     'rub_24h_change': coingecko_data.get('rub_24h_change', 0) if coingecko_data else 0,
+                    'uah_24h_change': coingecko_data.get('uah_24h_change', 0) if coingecko_data else 0,
                     'usd_24h_vol': coingecko_data.get('usd_24h_vol', 0) if coingecko_data else 0,
                     'usd_market_cap': coingecko_data.get('usd_market_cap', 0) if coingecko_data else 0
                 }
@@ -67,6 +62,8 @@ def get_ton_price_tonapi() -> dict:
                     result['usd'] = coingecko_data.get('usd')
                 if result['rub'] is None and coingecko_data:
                     result['rub'] = coingecko_data.get('rub')
+                if result['uah'] is None and coingecko_data:
+                    result['uah'] = coingecko_data.get('uah')
 
                 return result
         return None
@@ -81,7 +78,7 @@ def get_crypto_price_coingecko(crypto_id: str) -> dict:
         url = "https://api.coingecko.com/api/v3/simple/price"
         params = {
             'ids': crypto_id,
-            'vs_currencies': 'usd,rub',
+            'vs_currencies': 'usd,rub,uah',
             'include_24hr_change': 'true',
             'include_24hr_vol': 'true',
             'include_market_cap': 'true'
@@ -143,6 +140,16 @@ def format_price_rub(price: float) -> str:
     else:
         return f"₽{price:.8f}"
 
+# Функция для форматирования цены в гривнах
+def format_price_uah(price: float) -> str:
+    """Форматирует цену в гривнах"""
+    if price >= 1:
+        return f"₴{price:,.2f}"
+    elif price >= 0.01:
+        return f"₴{price:.4f}"
+    else:
+        return f"₴{price:.8f}"
+
 # Функция для форматирования больших чисел
 def format_large_number(num: float) -> str:
     """Форматирует большие числа (объем, капитализация)"""
@@ -183,8 +190,6 @@ def create_crypto_keyboard() -> InlineKeyboardMarkup:
             buttons.append(row)
             row = []
     
-    # Добавляем кнопку "Все курсы"
-    buttons.append([InlineKeyboardButton("📊 Все курсы", callback_data="all_crypto")])
     buttons.append([InlineKeyboardButton("🔄 Обновить", callback_data="refresh")])
     
     return InlineKeyboardMarkup(buttons)
@@ -257,34 +262,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     await query.answer()
     
-    if query.data == "all_crypto":
-        # Показываем все курсы
-        message = "📊 <b>Курсы всех криптовалют:</b>\n\n"
-        
-        for crypto_id, crypto_info in CRYPTO_CURRENCIES.items():
-            price_data = get_crypto_price(crypto_id)
-            if price_data:
-                price_usd = price_data.get('usd')
-                price_rub = price_data.get('rub')
-                change_24h = price_data.get('usd_24h_change', 0)
-                message += f"{crypto_info['emoji']} <b>{crypto_info['name']}</b> ({crypto_info['symbol']})\n"
-                if price_usd is not None:
-                    message += f"   💵 Цена (USD): {format_price(price_usd)}\n"
-                if price_rub is not None:
-                    message += f"   🇷🇺 Цена (RUB): {format_price_rub(price_rub)}\n"
-                message += f"   {format_change(change_24h)}\n\n"
-            else:
-                message += f"{crypto_info['emoji']} <b>{crypto_info['name']}</b> ({crypto_info['symbol']})\n"
-                message += f"   ⚠️ Данные недоступны\n\n"
-        
-        keyboard = create_crypto_keyboard()
-        await query.edit_message_text(
-            message,
-            reply_markup=keyboard,
-            parse_mode='HTML'
-        )
-    
-    elif query.data == "refresh":
+    if query.data == "refresh":
         # Обновляем меню
         message = "💰 <b>Выберите криптовалюту для просмотра курса:</b>"
         keyboard = create_crypto_keyboard()
@@ -308,8 +286,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if price_data:
             price_usd = price_data.get('usd')
             price_rub = price_data.get('rub')
+            price_uah = price_data.get('uah')
             change_usd = price_data.get('usd_24h_change')
             change_rub = price_data.get('rub_24h_change')
+            change_uah = price_data.get('uah_24h_change')
             volume_24h = price_data.get('usd_24h_vol', 0)
             market_cap = price_data.get('usd_market_cap', 0)
 
@@ -318,12 +298,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 price_lines.append(f"💵 <b>Цена (USD):</b> {format_price(price_usd)}")
             if price_rub is not None:
                 price_lines.append(f"🇷🇺 <b>Цена (RUB):</b> {format_price_rub(price_rub)}")
+            if price_uah is not None:
+                price_lines.append(f"🇺🇦 <b>Цена (UAH):</b> {format_price_uah(price_uah)}")
 
             change_lines = []
             if change_usd is not None:
                 change_lines.append(f"• USD {format_change(change_usd)}")
             if change_rub is not None:
                 change_lines.append(f"• RUB {format_change(change_rub)}")
+            if change_uah is not None:
+                change_lines.append(f"• UAH {format_change(change_uah)}")
 
             change_block = "\n".join(change_lines) if change_lines else "• Данные недоступны"
             price_block = "\n".join(price_lines) if price_lines else "💵 Данные о цене недоступны"
