@@ -342,7 +342,7 @@ def main() -> None:
     
     # Запускаем бота
     logger.info("Бот запущен...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
