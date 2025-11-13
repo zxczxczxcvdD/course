@@ -35,44 +35,39 @@ def get_ton_price_tonapi() -> dict:
         url = "https://tonapi.io/v2/rates"
         params = {
             'tokens': 'ton',
-            'currencies': 'usd'
+            'currencies': 'usd,rub'
         }
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
+
         if 'rates' in data and 'TON' in data['rates']:
             ton_data = data['rates']['TON']
-            if 'USD' in ton_data:
-                price = ton_data['USD']
-                
+            usd_price = ton_data.get('USD')
+            rub_price = ton_data.get('RUB')
+
+            if usd_price is not None or rub_price is not None:
                 # Пытаемся получить дополнительные данные через CoinGecko
                 try:
                     coingecko_data = get_crypto_price_coingecko('the-open-network')
-                    if coingecko_data:
-                        result = {
-                            'usd': price,
-                            'usd_24h_change': coingecko_data.get('usd_24h_change', 0),
-                            'usd_24h_vol': coingecko_data.get('usd_24h_vol', 0),
-                            'usd_market_cap': coingecko_data.get('usd_market_cap', 0)
-                        }
-                    else:
-                        # Если CoinGecko не доступен, возвращаем только цену
-                        result = {
-                            'usd': price,
-                            'usd_24h_change': 0,
-                            'usd_24h_vol': 0,
-                            'usd_market_cap': 0
-                        }
-                except:
-                    # Если произошла ошибка при получении данных из CoinGecko
-                    result = {
-                        'usd': price,
-                        'usd_24h_change': 0,
-                        'usd_24h_vol': 0,
-                        'usd_market_cap': 0
-                    }
-                
+                except Exception:
+                    coingecko_data = None
+
+                result = {
+                    'usd': usd_price,
+                    'rub': rub_price,
+                    'usd_24h_change': coingecko_data.get('usd_24h_change', 0) if coingecko_data else 0,
+                    'rub_24h_change': coingecko_data.get('rub_24h_change', 0) if coingecko_data else 0,
+                    'usd_24h_vol': coingecko_data.get('usd_24h_vol', 0) if coingecko_data else 0,
+                    'usd_market_cap': coingecko_data.get('usd_market_cap', 0) if coingecko_data else 0
+                }
+
+                # Если CoinGecko недоступен, заменяем None значениями по умолчанию
+                if result['usd'] is None and coingecko_data:
+                    result['usd'] = coingecko_data.get('usd')
+                if result['rub'] is None and coingecko_data:
+                    result['rub'] = coingecko_data.get('rub')
+
                 return result
         return None
     except Exception as e:
@@ -86,7 +81,7 @@ def get_crypto_price_coingecko(crypto_id: str) -> dict:
         url = "https://api.coingecko.com/api/v3/simple/price"
         params = {
             'ids': crypto_id,
-            'vs_currencies': 'usd',
+            'vs_currencies': 'usd,rub',
             'include_24hr_change': 'true',
             'include_24hr_vol': 'true',
             'include_market_cap': 'true'
@@ -137,6 +132,16 @@ def format_price(price: float) -> str:
         return f"${price:.4f}"
     else:
         return f"${price:.8f}"
+
+# Функция для форматирования цены в рублях
+def format_price_rub(price: float) -> str:
+    """Форматирует цену в рублях"""
+    if price >= 1:
+        return f"₽{price:,.2f}"
+    elif price >= 0.01:
+        return f"₽{price:.4f}"
+    else:
+        return f"₽{price:.8f}"
 
 # Функция для форматирования больших чисел
 def format_large_number(num: float) -> str:
@@ -259,10 +264,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         for crypto_id, crypto_info in CRYPTO_CURRENCIES.items():
             price_data = get_crypto_price(crypto_id)
             if price_data:
-                price = price_data.get('usd', 0)
+                price_usd = price_data.get('usd')
+                price_rub = price_data.get('rub')
                 change_24h = price_data.get('usd_24h_change', 0)
                 message += f"{crypto_info['emoji']} <b>{crypto_info['name']}</b> ({crypto_info['symbol']})\n"
-                message += f"   💵 Цена: {format_price(price)}\n"
+                if price_usd is not None:
+                    message += f"   💵 Цена (USD): {format_price(price_usd)}\n"
+                if price_rub is not None:
+                    message += f"   🇷🇺 Цена (RUB): {format_price_rub(price_rub)}\n"
                 message += f"   {format_change(change_24h)}\n\n"
             else:
                 message += f"{crypto_info['emoji']} <b>{crypto_info['name']}</b> ({crypto_info['symbol']})\n"
@@ -297,18 +306,37 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         price_data = get_crypto_price(crypto_id)
         
         if price_data:
-            price = price_data.get('usd', 0)
-            change_24h = price_data.get('usd_24h_change', 0)
+            price_usd = price_data.get('usd')
+            price_rub = price_data.get('rub')
+            change_usd = price_data.get('usd_24h_change')
+            change_rub = price_data.get('rub_24h_change')
             volume_24h = price_data.get('usd_24h_vol', 0)
             market_cap = price_data.get('usd_market_cap', 0)
-            
+
+            price_lines = []
+            if price_usd is not None:
+                price_lines.append(f"💵 <b>Цена (USD):</b> {format_price(price_usd)}")
+            if price_rub is not None:
+                price_lines.append(f"🇷🇺 <b>Цена (RUB):</b> {format_price_rub(price_rub)}")
+
+            change_lines = []
+            if change_usd is not None:
+                change_lines.append(f"• USD {format_change(change_usd)}")
+            if change_rub is not None:
+                change_lines.append(f"• RUB {format_change(change_rub)}")
+
+            change_block = "\n".join(change_lines) if change_lines else "• Данные недоступны"
+            price_block = "\n".join(price_lines) if price_lines else "💵 Данные о цене недоступны"
+
             message = f"""
 {crypto_info['emoji']} <b>{crypto_info['name']}</b> ({crypto_info['symbol']})
 
-💵 <b>Текущая цена:</b> {format_price(price)}
-{format_change(change_24h)}
+{price_block}
 
-📊 <b>Статистика за 24 часа:</b>
+📈 <b>Изменение за 24 часа:</b>
+{change_block}
+
+📊 <b>Статистика за 24 часа (USD):</b>
 • Объем торгов: {format_large_number(volume_24h)}
 • Рыночная капитализация: {format_large_number(market_cap)}
 """
